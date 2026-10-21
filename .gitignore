@@ -1,0 +1,30 @@
+# Personal data never belongs in this public repo.
+# Listening history, Instagram likes, profile docs, picks and ticket evidence stay in the
+# artifact's private database or a local scratch folder.
+private/
+work/
+live/
+exports/
+*spotify_stats*.json
+Streaming_History*.json
+StreamingHistory*.json
+my_spotify_data*/
+instagram*/
+liked_posts*.json
+profile_owner.json
+profile_music.json
+profile_tracks.json
+marks*.json
+tickets*.json
+*.zip
+
+# Test output
+tests/shots/
+
+# Python / tooling
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+node_modules/
+.DS_Store
