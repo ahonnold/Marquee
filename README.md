@@ -38,6 +38,7 @@ pipeline/
   spotify_import.py       Spotify Extended Streaming History → listening aggregates
   build_profile.py        aggregates + comedians → profile/owner, profile/music, profile/tracks
   recent_boost.py         weekly Spotify connector signals → profile/music
+  spotify_ids.py          fills Spotify artist ids so act names open the artist page
   README.md               database layout and the daily refresh loop
   SCHEMA.md               event fields
 tests/

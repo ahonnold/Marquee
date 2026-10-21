@@ -40,6 +40,10 @@ Event fields are in `SCHEMA.md`. Every event keeps a stable `id`; the page keys 
   `build_profile.py stats.json <current profile/owner.json> out/` and write the three profile docs.
   Stats contain listening history aggregates only; never commit them (this repo is public).
 - Weekly connector signal: `recent_boost.py profile_music.json recent.json out.json`.
+- Spotify artist ids (the export has none): `spotify_ids.py missing work/out/feed profile_music.json` lists
+  acts with shows but no id; look them up with the Spotify connector, then
+  `spotify_ids.py fill profile_music.json ids.json --out out.json`. Acts with an id link straight to their
+  artist page; the rest fall back to a Spotify search.
 
 ## Tests
 

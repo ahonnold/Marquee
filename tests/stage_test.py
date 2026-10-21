@@ -117,6 +117,34 @@ async def main():
         await pg.locator('.toast button', has_text='Undo').click(); await pg.wait_for_timeout(200)
         check('Undo in toast reverts', await pg.locator(f'article[data-id="{cid}"] button.act.int').first.get_attribute('aria-pressed') == 'false')
 
+        # tapping Interested never reshuffles the list (learning applies on the next view change)
+        order = lambda: pg.eval_on_selector_all('main article.tix', 'els=>els.map(e=>e.dataset.id)')
+        sec = pg.locator('section.tier', has=pg.locator('h2', has_text='Discovery'))
+        if await sec.count():
+            before = await order()
+            dbtn = sec.locator('article.tix:not(:has(.act[aria-pressed="true"])) button.act.int').first
+            did = await dbtn.evaluate('b=>b.closest("article").dataset.id')
+            await dbtn.click(); await pg.wait_for_timeout(250)
+            after = await order()
+            still = await pg.locator('section.tier', has=pg.locator('h2', has_text='Discovery')).locator(f'article[data-id="{did}"]').count()
+            check('Interested keeps the list order and section', before == after and still == 1, (before.index(did), after.index(did) if did in after else None))
+            await pg.locator('.toast button', has_text='Undo').click(); await pg.wait_for_timeout(200)
+            check('Undo keeps the list order too', await order() == before)
+        else:
+            check('Interested keeps the list order and section', False, 'no Discovery tier in fixtures')
+
+        # header: wordmark scrolls away, tabs stay pinned, no layout jump while scrolling
+        await pg.evaluate('window.scrollTo(0,0)'); await pg.wait_for_timeout(100)
+        h0 = await pg.evaluate('document.documentElement.scrollHeight')
+        jumps = await pg.evaluate('''async()=>{ const out=[]; for (let y=0; y<=480; y+=12){ window.scrollTo(0,y); await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))); out.push([y, Math.round(scrollY), document.documentElement.scrollHeight]); } return out; }''')
+        bad = [j for j in jumps if j[0] != j[1] or j[2] != h0]
+        top = await pg.evaluate("document.querySelector('#hdr .tabs').getBoundingClientRect().top")
+        word = await pg.evaluate("document.querySelector('#hdr .word').getBoundingClientRect().bottom")
+        check('header scroll is smooth (no jumps, height constant)', not bad, bad[:3])
+        check('tabs stay pinned, wordmark scrolls away', 0 <= top <= 16 and word <= 0, (round(top), round(word)))
+        await pg.screenshot(path=os.path.join(args.shots, '01b_scrolled_header.png'))
+        await pg.evaluate('window.scrollTo(0,0)'); await pg.wait_for_timeout(100)
+
         # share link + invite
         free = pg.locator('article.tix:not(:has(.act[aria-pressed="true"]))')
         await free.nth(1).locator('.meta').click(); await pg.wait_for_timeout(150)
@@ -182,6 +210,8 @@ async def main():
         check('swipe right marks Interested', await pg4.locator(f'article[data-id="{cid}"] button.act.int').first.get_attribute('aria-pressed') == 'true', await T(pg4))
         hrefs = await pg4.eval_on_selector_all('a.nm-link', 'els=>els.map(a=>a.href)')
         check('phone search links drop /artists', not any(h.endswith('/artists') for h in hrefs))
+        art = [h for h in hrefs if '/artist/' in h]
+        check('phone artist links open the artist page via ?go=1', art and all(h.endswith('?go=1') for h in art), art[:2])
 
         # ---- desktop, light ----
         pg5, errs5 = await open_page(b, w=1280, h=900, scheme='light')
@@ -193,6 +223,8 @@ async def main():
         await pg5.locator('.sheet button', has_text='Close').click()
         hrefs = await pg5.eval_on_selector_all('a.nm-link', 'els=>els.map(a=>a.href)')
         check('desktop search links keep /artists', any(h.endswith('/artists') for h in hrefs))
+        art = [h for h in hrefs if '/artist/' in h]
+        check('desktop artist links open the artist page via ?go=1', art and all(h.endswith('?go=1') for h in art), art[:2])
         await pg5.screenshot(path=os.path.join(args.shots, '04_desktop_light.png'))
         await pg5.click('#tab-browse'); await pg5.wait_for_timeout(300)
         check('Browse shows genre chips', await pg5.locator('main .filters .chip').count() > 3)

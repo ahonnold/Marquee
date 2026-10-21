@@ -112,3 +112,22 @@ def test_large_month_splits(tmp_path):
     many = [ev(headliner=f'Band {i}', notes='x' * 250, time=f'{i % 12 + 1}:00 PM') for i in range(400)]
     docs, _, _ = run(tmp_path, add=many)
     assert len(docs) >= 2 and all(len(json.dumps(d)) < 256_000 for d in docs.values())
+
+
+def test_spotify_ids_fill_and_missing(tmp_path, capsys):
+    import spotify_ids as si
+    prof = tmp_path / 'music.json'
+    prof.write_text(json.dumps({'acts': [['Café Tacvba', 0.9, '', None, None, 0],
+                                         ['Known', 0.8, '', 'KnownId000000000000000', None, 0],
+                                         ['Other', 0.5, '', None, None, 0]]}))
+    fd = tmp_path / 'feed'; fd.mkdir()
+    (fd / 'm-2026-11.json').write_text(json.dumps({'events': [ev(headliner='Cafe Tacvba', supporting=['Other', 'Known']),
+                                                              ev(category='comedy', headliner='Other')]}))
+    assert si.missing(str(fd), str(prof)) == ['Café Tacvba', 'Other']
+    ids = tmp_path / 'ids.json'
+    ids.write_text(json.dumps({'cafe tacvba': 'https://open.spotify.com/artist/TacvbaId00000000000000?si=x',
+                               'Known': 'WrongId000000000000000', 'Nobody': 'NobodyId00000000000000', 'Other': 'not-an-id'}))
+    out = tmp_path / 'out.json'
+    assert si.fill(str(prof), [str(ids)], str(out)) == 1
+    acts = {a[0]: a[3] for a in json.loads(out.read_text())['acts']}
+    assert acts == {'Café Tacvba': 'TacvbaId00000000000000', 'Known': 'KnownId000000000000000', 'Other': None}

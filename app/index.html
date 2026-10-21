@@ -40,7 +40,17 @@ a{color:inherit}
 }
 
 /* Header */
-header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:14px 10px;display:grid;gap:10px;border-bottom:1px solid var(--line);transition:padding .15s ease}
+/* The header is sticky with a negative top: the wordmark (and, on phones, the search box) scroll away
+   1:1 with the page and the tabs + filters stay pinned. No scroll handler, no layout change mid-scroll. */
+header{position:sticky;top:calc(env(safe-area-inset-top,0px) - var(--collapse,0px));z-index:5;background:var(--bg);padding-block:14px 10px;display:grid;gap:10px;border-bottom:1px solid var(--line);
+  grid-template-columns:minmax(0,1fr) minmax(160px,240px);grid-template-areas:"brand brand" "tabs tabs" "filters search"}
+header .brand{grid-area:brand} header .tabs{grid-area:tabs} header .filters{grid-area:filters} header .search{grid-area:search;align-self:center}
+@media (max-width:640px){
+  header{grid-template-columns:minmax(0,1fr);grid-template-areas:"brand" "search" "tabs" "filters"}
+  header .filters{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin-inline:-16px;padding-inline:16px}
+  header .filters::-webkit-scrollbar{display:none}
+  header .chip{flex:none}
+}
 .brand{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .word{font-family:var(--display);font-weight:900;font-size:34px;letter-spacing:.06em;line-height:1;text-transform:uppercase;display:flex;gap:2px}
 .word span{position:relative}
@@ -49,13 +59,6 @@ header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
 .stamp{font-family:var(--mono);font-size:11.5px;color:var(--muted);letter-spacing:.02em;border:0;background:transparent;padding:2px 0;text-align:right}
 .stamp b{color:var(--ink);font-weight:600}
-header.compact{padding-block:6px;gap:6px}
-header.compact .brand{display:none}
-header.compact .tab{padding:6px 4px;font-size:13px}
-header.compact .filters{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
-header.compact .filters::-webkit-scrollbar{display:none}
-header.compact .chip{padding:3px 9px;font-size:12px;flex:none}
-header.compact .search{flex:0 0 150px;padding:4px 10px;font-size:13px}
 .tabs{display:flex;gap:4px;background:var(--sunk);padding:4px;border-radius:999px}
 .tab{flex:1;border:0;background:transparent;padding:8px 4px;border-radius:999px;font-weight:600;font-size:14px;color:var(--muted)}
 .tab[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0/.12)}
@@ -232,8 +235,8 @@ button.b{cursor:pointer;font-family:inherit}
     <button class="chip" data-cat="comedy" aria-pressed="false"><i class="dot comedy"></i>Comedy</button>
     <button class="chip" data-cat="theater" aria-pressed="false"><i class="dot theater"></i>Theater</button>
     <button class="chip" id="whereBtn" aria-pressed="true">Bay Area</button>
-    <input class="search" id="q" type="search" placeholder="Search acts, venues" aria-label="Search acts or venues">
   </div>
+  <input class="search" id="q" type="search" placeholder="Search acts, venues" aria-label="Search acts or venues">
 </header>
 <div class="layout">
   <main id="main"><div class="loading">Tuning up the marquee…</div></main>
@@ -342,6 +345,16 @@ function rebuildGenres(){
   MUSIC_GENRES=new Set([...w.entries()].sort((a,b)=>b[1]-a[1]).slice(0,3).map(x=>x[0]));
   SC.clear();
 }
+// Stable layout: a list keeps the order and sections it was drawn with until the view changes (tab, filter,
+// sort, search) or the taste inputs change (profile, mute, track). Tapping Interested/Going/Hide/Undo or
+// rating a show updates the learned scores but never reshuffles the list under your thumb.
+let LAYOUT = {key:null, sc:new Map()};
+const layoutKey = () => [S.tab, S.cat, S.bay, S.q, S.sort, S.onlyNew, S.friendsOnly, S.genre].join('|');
+function placed(e){
+  const k=layoutKey(); if (LAYOUT.key!==k) LAYOUT={key:k, sc:new Map()};
+  let s=LAYOUT.sc.get(e.id); if (!s){ s=scoreEvent(e); LAYOUT.sc.set(e.id, s); } return s;
+}
+const relayout = () => { LAYOUT.key=null; };
 const loves = a => !!(a && !a.muted && !a.similar && a.score>=0.45);
 const isFav = n => loves(AFF.get(norm(n)));
 function scoreEvent(e){
@@ -585,13 +598,13 @@ function setMark(e, status, override){
 function restoreMark(e, prev){ if (prev) S.my.events[e.id]=prev; else delete S.my.events[e.id]; rebuildAffinity(); render(); persist(); reconcile(e.id); toast('Undone.'); }
 function mute(name){
   const k=norm(name); S.my.muted=Object.assign({}, S.my.muted||{}, {[k]:name});
-  rebuildAffinity(); render(); persist();
-  toast(name+' won’t show up in For you.', [{label:'Undo', fn:()=>{ delete S.my.muted[k]; rebuildAffinity(); render(); persist(); }}]);
+  rebuildAffinity(); relayout(); render(); persist();
+  toast(name+' won’t show up in For you.', [{label:'Undo', fn:()=>{ delete S.my.muted[k]; rebuildAffinity(); relayout(); render(); persist(); }}]);
 }
-function unmute(k){ delete S.my.muted[k]; rebuildAffinity(); render(); persist(); }
+function unmute(k){ delete S.my.muted[k]; rebuildAffinity(); relayout(); render(); persist(); }
 function track(name, on){
   const k=norm(name); S.my.tracked=Object.assign({}, S.my.tracked||{}, {[k]:{name,on}});
-  rebuildAffinity(); render(); persist(); toast(on? 'Tracking '+name+'. Their shows move up your feed.' : 'Stopped tracking '+name+'.');
+  rebuildAffinity(); relayout(); render(); persist(); toast(on? 'Tracking '+name+'. Their shows move up your feed.' : 'Stopped tracking '+name+'.');
 }
 function setRating(id, n){ const m=S.my.events[id]; if (!m) return; m.rating = m.rating===n? undefined : n; rebuildAffinity(); render(); persist(); }
 
@@ -796,7 +809,7 @@ function renderFeed(main){
   const fe=S.focus && S.byId.get(S.focus);
   if (fe){ S.open.add(fe.id);
     main.append(el('section',{class:'tier'}, el('div',{class:'tier-h'}, el('h2',{text:'Shared show'}), el('button',{class:'linkbtn',onclick:()=>{ S.focus=null; render(); }},'Close')), el('div',{class:'list'}, card(fe, scoreEvent(fe))))); }
-  const rows=groupRows(filtered().filter(e=>mark(e.id)!=='dismissed').map(e=>[e,scoreEvent(e)]));
+  const rows=groupRows(filtered().filter(e=>mark(e.id)!=='dismissed').map(e=>[e,placed(e)]));
   const mine=rows.filter(([,s])=>s.score>=FEED_MIN);
   const fresh=mine.filter(([e,,ms])=>isNew(e) || (ms||[]).some(([x])=>isNew(x)));
   const friends=rows.filter(([e,,ms])=>otherMarks(e.id).length || (ms||[]).some(([x])=>otherMarks(x.id).length));
@@ -838,7 +851,7 @@ function renderBrowse(main){
   const bar=el('div',{class:'filters',style:'margin-top:4px'}, el('button',{class:'chip','aria-pressed':String(!S.genre),onclick:()=>{ S.genre=null; S.expanded.br=false; render(); }},'Any genre'),
     genres.map(g=>el('button',{class:'chip','aria-pressed':String(S.genre===g),onclick:()=>{ S.genre= S.genre===g? null : g; S.expanded.br=false; render(); }}, g)));
   main.append(el('section',{class:'tier'}, el('div',{class:'tier-h'}, el('h2',{text:'Browse'})), el('p',{class:'blurb',text:'Your top genres, from the acts you like. Every show by date.'}), bar));
-  const rows=groupRows(pool.filter(e=>!S.genre || tagsOf(e).includes(S.genre)).map(e=>[e,scoreEvent(e)])).sort((a,b)=>byDate(a[0],b[0]));
+  const rows=groupRows(pool.filter(e=>!S.genre || tagsOf(e).includes(S.genre)).map(e=>[e,placed(e)])).sort((a,b)=>byDate(a[0],b[0]));
   if (!rows.length){ main.append(el('div',{class:'empty',text:'No shows in this genre with these filters.'})); return; }
   main.append(tierSection(S.genre||'All shows','',rows,{key:'br',limit:40,months:true}));
 }
@@ -950,7 +963,7 @@ function render(){
   for (const b of document.querySelectorAll('.tab')) b.setAttribute('aria-selected', String(b.dataset.tab===S.tab));
   for (const b of document.querySelectorAll('[data-cat]')) b.setAttribute('aria-pressed', String(b.dataset.cat===S.cat));
   $('#whereBtn').setAttribute('aria-pressed', String(S.bay)); $('#whereBtn').textContent = S.bay?'Bay Area':'Everywhere';
-  $('#filters').hidden = S.tab==='acts' || S.tab==='mine';
+  $('#filters').hidden = $('#q').hidden = S.tab==='acts' || S.tab==='mine';
   const n=Object.entries(S.my.events||{}).filter(([id,m])=>(m.s==='going'||m.s==='interested') && (S.byId.get(id)? (S.byId.get(id).end_date||S.byId.get(id).date)>=todayStr : (m.snap?.d||'')>=todayStr)).length;
   $('#mineN').textContent=n?n:'';
   document.body.classList.toggle('swipe-on', COARSE && S.my.settings?.swipe!==false);
@@ -1016,12 +1029,12 @@ $('#main').addEventListener('click', ev=>{
   });
   main.addEventListener('pointercancel', ()=>{ if (st){ reset(st.c); st=null; } });
 })();
-// compact header while scrolling; keep the side panel below the header
+// header: everything above the tabs scrolls away (sticky top = minus that height); the side panel sits below what stays
 (() => {
-  const h=$('#hdr'); let on=false, ticking=false;
-  const setH=()=>document.documentElement.style.setProperty('--hdr', h.offsetHeight+'px');
-  window.addEventListener('scroll',()=>{ if (ticking) return; ticking=true; requestAnimationFrame(()=>{ ticking=false; const y=window.scrollY; const want = on ? y>40 : y>120; if (want!==on){ on=want; h.classList.toggle('compact',on); setH(); } }); }, {passive:true});
-  window.addEventListener('resize', setH); setH();
+  const h=$('#hdr'), tabs=h.querySelector('.tabs'), root=document.documentElement.style;
+  const measure=()=>{ const c=Math.max(0, tabs.offsetTop-8); root.setProperty('--collapse', c+'px'); root.setProperty('--hdr', (h.offsetHeight-c)+'px'); };
+  if (window.ResizeObserver) new ResizeObserver(measure).observe(h); else window.addEventListener('resize', measure);
+  measure();
   WIDE.addEventListener?.('change', ()=>render());
 })();
 
@@ -1036,7 +1049,7 @@ render();
   Promise.all([within(claude.use('mcp'),12000,null), within(claude.use('permissions'),12000,null)]).then(async ([mcp,perms])=>{ S.mcp=mcp; S.perms=perms; await refreshPerm(); rerender(); maybeBootSync(); });
   setTimeout(()=>{ if (!myLoaded){ myLoaded=true; rerender(); } }, 5000);
   if (user){ S.isOwner = await within(user.isOwner(),5000,false); S.myId = await within(user.id(),5000,null); }
-  rebuildAffinity();
+  rebuildAffinity(); relayout();
   if (!db){ S.dbReady=true; $('#stamp').textContent='Open in claude.ai to load shows'; render(); return; }
   const onErr = e => { if (e?.code==='revoked') toast('Access to this page changed. Reload to continue.'); };
   const backfill = () => {   // remember what each saved show was, so the diary works after it leaves the feed
@@ -1049,8 +1062,8 @@ render();
     S.events=evs; S.byId=new Map(evs.map(e=>[e.id,e])); S.dbReady=true; SC.clear(); rebuildAffinity();
     rerender(); feedLoaded=true; backfill(); maybeBootSync();
   }, onErr);
-  db.doc('profile/owner').onSnapshot(s=>{ S.owner=s.exists? s.data():null; rebuildAffinity(); rerender(); }, onErr);
-  db.doc('profile/music').onSnapshot(s=>{ S.music=s.exists? s.data():null; rebuildAffinity(); rerender(); }, onErr);
+  db.doc('profile/owner').onSnapshot(s=>{ S.owner=s.exists? s.data():null; rebuildAffinity(); relayout(); rerender(); }, onErr);
+  db.doc('profile/music').onSnapshot(s=>{ S.music=s.exists? s.data():null; rebuildAffinity(); relayout(); rerender(); }, onErr);
   db.doc('profile/tracks').onSnapshot(s=>{ S.tracks=s.exists? s.data():null; rerender(); }, onErr);
   db.doc('meta/status').onSnapshot(s=>{ S.meta=s.exists? s.data():null; rerender(); }, onErr);
   if (S.myId){
@@ -1070,7 +1083,7 @@ render();
         S.my={events:Object.assign({}, b.events||{}, early?.events||{}), tracked:Object.assign({}, b.tracked||{}, early?.tracked||{}),
               muted:Object.assign({}, b.muted||{}, early?.muted||{}), settings:Object.assign({cal:true}, b.settings||{}), cal:Object.assign(cal, early?.cal||{})};
         if (early && (Object.keys(early.events||{}).length || Object.keys(early.tracked||{}).length)) persist();
-        rebuildAffinity();
+        const first=!myLoaded; rebuildAffinity(); if (first) relayout();   // later echoes of your own taps keep the layout
       }
     }
     if (!myLoaded){ myLoaded=true; backfill(); maybeBootSync(); }
